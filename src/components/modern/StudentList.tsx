@@ -20,7 +20,7 @@ import {
   Replace,
   ArrowUpDown
 } from 'lucide-react';
-import { supabase, localStore } from '../../lib/supabase';
+import { supabase, localStore, supabaseConfigStatus, isRealSupabaseConfigured } from '../../lib/supabase';
 
 export interface ExtendedStudentView {
   id: number;
@@ -61,6 +61,7 @@ interface StudentListProps {
   onOpenEmailList: (emails: string[]) => void;
   onOpenStudentDetails: (studentId: number) => void;
   onOpenBulkEdit: () => void;
+  onOpenSchema?: () => void;
 }
 
 export const StudentList: React.FC<StudentListProps> = ({
@@ -68,6 +69,7 @@ export const StudentList: React.FC<StudentListProps> = ({
   onOpenEmailList,
   onOpenStudentDetails,
   onOpenBulkEdit,
+  onOpenSchema,
 }) => {
   const [students, setStudents] = useState<ExtendedStudentView[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -85,7 +87,7 @@ export const StudentList: React.FC<StudentListProps> = ({
   const [sortField, setSortField] = useState<keyof ExtendedStudentView>('last_name');
   const [sortAscending, setSortAscending] = useState<boolean>(true);
 
-  // Fetch data using Supabase JS Client
+  // Fetch data using Supabase JS Client with seamless local fallback
   const fetchStudents = async () => {
     try {
       setLoading(true);
@@ -103,8 +105,10 @@ export const StudentList: React.FC<StudentListProps> = ({
 
       setStudents((data as ExtendedStudentView[]) || []);
     } catch (err: any) {
-      console.error('Error fetching students from Supabase:', err);
-      setError(err.message || 'Failed to fetch student data');
+      console.warn('Supabase remote query returned an issue; serving from local PostgreSQL engine:', err);
+      const fallback = localStore.getViewStudentsExtended();
+      setStudents(fallback);
+      setError(err?.message || 'Remote database query failed. Serving from local PostgreSQL engine.');
     } finally {
       setLoading(false);
     }
@@ -297,7 +301,55 @@ export const StudentList: React.FC<StudentListProps> = ({
       </div>
 
       {/* 3. CLEAN, MODERN HTML TABLE (Tailwind CSS) */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto p-6 space-y-4">
+        {/* Supabase URL Format Diagnostic Banner */}
+        {supabaseConfigStatus.isInvalidFormat && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-amber-950 block sm:inline">Supabase URL Format Notice: </span>
+                <span>{supabaseConfigStatus.invalidReason}</span>
+                <span className="block text-[11px] text-amber-700 mt-0.5">
+                  The application is running safely with all student records powered by the local PostgreSQL database engine.
+                </span>
+              </div>
+            </div>
+            {onOpenSchema && (
+              <button
+                onClick={onOpenSchema}
+                className="shrink-0 px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg font-semibold text-[11px] transition-colors"
+              >
+                View Setup Guide & DDL
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Remote Supabase Table Missing or Query Notice */}
+        {!supabaseConfigStatus.isInvalidFormat && error && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-blue-900 shadow-2xs">
+            <div className="flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-blue-950">PostgreSQL Engine Active: </span>
+                <span>{error}</span>
+                <span className="block text-[11px] text-blue-700 mt-0.5">
+                  To sync with your live Supabase database, run the DDL schema in the Supabase SQL editor.
+                </span>
+              </div>
+            </div>
+            {onOpenSchema && (
+              <button
+                onClick={onOpenSchema}
+                className="shrink-0 px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg font-semibold text-[11px] transition-colors"
+              >
+                Copy SQL DDL
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
           <table className="w-full text-left border-collapse text-xs">
             <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-700">

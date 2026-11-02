@@ -6,21 +6,85 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { INITIAL_STUDENTS, INITIAL_GUARDIANS, INITIAL_STUDENTS_AND_GUARDIANS, INITIAL_ATTENDANCE } from '../data/initialData';
 
-function getRealSupabaseClient(): SupabaseClient | null {
-  const url = import.meta.env.VITE_SUPABASE_URL;
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+export interface SupabaseConfigStatus {
+  isConfigured: boolean;
+  isInvalidFormat: boolean;
+  invalidReason?: string;
+  projectUrl?: string;
+}
 
-  if (!url || !key) return null;
-  if (typeof url !== 'string' || typeof key !== 'string') return null;
-  if (url.includes('your-project-id') || url.includes('placeholder')) return null;
+export function getSupabaseConfigStatus(): SupabaseConfigStatus {
+  const rawUrl = import.meta.env.VITE_SUPABASE_URL;
+  const rawKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const url = typeof rawUrl === 'string' ? rawUrl.trim() : '';
+  const key = typeof rawKey === 'string' ? rawKey.trim() : '';
+
+  if (!url && !key) {
+    return { isConfigured: false, isInvalidFormat: false };
+  }
+
+  // Common user mistake: pasting https://supabase.co instead of https://<project-ref>.supabase.co
+  if (url === 'https://supabase.co' || url === 'http://supabase.co' || url === 'https://supabase.com' || url === 'supabase.co') {
+    return {
+      isConfigured: false,
+      isInvalidFormat: true,
+      invalidReason: "You entered 'https://supabase.co', which is the Supabase website homepage, not your project API URL. Your project URL format must be 'https://<project-ref>.supabase.co' (found in Supabase Dashboard → Project Settings → API)."
+    };
+  }
 
   try {
-    const parsed = new URL(url);
+    const parsed = new URL(url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return null;
+      return {
+        isConfigured: false,
+        isInvalidFormat: true,
+        invalidReason: "VITE_SUPABASE_URL must start with https:// (or http:// for local emulator)."
+      };
     }
-    return createClient(url, key);
+
+    if (parsed.hostname === 'supabase.co' || parsed.hostname === 'www.supabase.co' || parsed.hostname === 'supabase.com') {
+      return {
+        isConfigured: false,
+        isInvalidFormat: true,
+        invalidReason: "VITE_SUPABASE_URL cannot be 'https://supabase.co'. It must contain your project ID subdomain, e.g. 'https://abcxyz123.supabase.co'."
+      };
+    }
+
+    if (!key || key.includes('placeholder') || key.includes('your-anon')) {
+      return {
+        isConfigured: false,
+        isInvalidFormat: true,
+        invalidReason: "VITE_SUPABASE_ANON_KEY is missing or is still a placeholder. Supabase requires both the Project URL and the anon public key."
+      };
+    }
+
+    return {
+      isConfigured: true,
+      isInvalidFormat: false,
+      projectUrl: parsed.origin
+    };
   } catch (_e) {
+    return {
+      isConfigured: false,
+      isInvalidFormat: true,
+      invalidReason: "VITE_SUPABASE_URL is not a valid URL. Expected format: 'https://<project-ref>.supabase.co'."
+    };
+  }
+}
+
+function getRealSupabaseClient(): SupabaseClient | null {
+  const status = getSupabaseConfigStatus();
+  if (!status.isConfigured || status.isInvalidFormat) {
+    return null;
+  }
+
+  const rawUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+  const rawKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+
+  try {
+    return createClient(rawUrl, rawKey);
+  } catch (e) {
+    console.warn('Failed to initialize Supabase client:', e);
     return null;
   }
 }
@@ -28,6 +92,7 @@ function getRealSupabaseClient(): SupabaseClient | null {
 // Safely instantiate real client only if valid URL is supplied
 export const realSupabase: SupabaseClient | null = getRealSupabaseClient();
 export const isRealSupabaseConfigured: boolean = realSupabase !== null;
+export const supabaseConfigStatus = getSupabaseConfigStatus();
 
 // Local In-Memory Reactive Store (Emulating Supabase Database for instant local testing)
 class LocalSupabaseStore {

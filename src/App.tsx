@@ -182,6 +182,7 @@ export default function App() {
             onOpenEmailList={handleOpenEmailList}
             onOpenStudentDetails={handleOpenModernStudentDetails}
             onOpenBulkEdit={() => setIsBulkEditModalOpen(true)}
+            onOpenSchema={() => setActiveModernSection('schema')}
           />
         );
       case 'guardians':

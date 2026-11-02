@@ -4,12 +4,14 @@
  */
 
 import React, { useState } from 'react';
-import { Database, Copy, Check, Download, Layers, ShieldCheck, Code2, ArrowRight } from 'lucide-react';
+import { Database, Copy, Check, Download, Layers, ShieldCheck, Code2, ArrowRight, ExternalLink, AlertTriangle, Key, Terminal, HelpCircle } from 'lucide-react';
 import { SUPABASE_POSTGRES_SCHEMA } from '../../data/supabaseDdl';
+import { supabaseConfigStatus, isRealSupabaseConfigured } from '../../lib/supabase';
 
 export const SchemaInspector: React.FC = () => {
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'ddl' | 'view' | 'architecture'>('ddl');
+  const [copiedEnv, setCopiedEnv] = useState(false);
+  const [activeTab, setActiveTab] = useState<'ddl' | 'view' | 'architecture' | 'setup'>('ddl');
 
   const handleCopy = () => {
     navigator.clipboard.writeText(SUPABASE_POSTGRES_SCHEMA);
@@ -116,10 +118,10 @@ LEFT JOIN LATERAL (
       </div>
 
       {/* Tabs */}
-      <div className="bg-white border-b border-slate-200 px-6 flex items-center gap-1 shrink-0">
+      <div className="bg-white border-b border-slate-200 px-6 flex items-center gap-1 shrink-0 overflow-x-auto">
         <button
           onClick={() => setActiveTab('ddl')}
-          className={`px-3 py-2 font-semibold text-xs border-b-2 transition-colors ${
+          className={`px-3 py-2 font-semibold text-xs border-b-2 transition-colors whitespace-nowrap ${
             activeTab === 'ddl' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500'
           }`}
         >
@@ -127,7 +129,7 @@ LEFT JOIN LATERAL (
         </button>
         <button
           onClick={() => setActiveTab('view')}
-          className={`px-3 py-2 font-semibold text-xs border-b-2 transition-colors ${
+          className={`px-3 py-2 font-semibold text-xs border-b-2 transition-colors whitespace-nowrap ${
             activeTab === 'view' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500'
           }`}
         >
@@ -135,11 +137,23 @@ LEFT JOIN LATERAL (
         </button>
         <button
           onClick={() => setActiveTab('architecture')}
-          className={`px-3 py-2 font-semibold text-xs border-b-2 transition-colors ${
+          className={`px-3 py-2 font-semibold text-xs border-b-2 transition-colors whitespace-nowrap ${
             activeTab === 'architecture' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500'
           }`}
         >
           Relational Model & Integrity Rules
+        </button>
+        <button
+          onClick={() => setActiveTab('setup')}
+          className={`px-3 py-2 font-semibold text-xs border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+            activeTab === 'setup' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-slate-500'
+          }`}
+        >
+          <Key className="w-3.5 h-3.5" />
+          <span>Supabase Connection & Setup Guide</span>
+          {supabaseConfigStatus.isInvalidFormat && (
+            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+          )}
         </button>
       </div>
 
@@ -204,6 +218,140 @@ LEFT JOIN LATERAL (
                 <p className="text-slate-600 text-xs leading-relaxed">
                   Standard Supabase security architecture enforcing row-level security on all tables with explicit read, insert, update, and delete policies.
                 </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'setup' && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Status Card */}
+            <div className={`p-4 rounded-xl border ${
+              isRealSupabaseConfigured
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : supabaseConfigStatus.isInvalidFormat
+                ? 'bg-amber-50 border-amber-200 text-amber-900'
+                : 'bg-slate-100 border-slate-200 text-slate-800'
+            }`}>
+              <div className="flex items-start gap-3">
+                {isRealSupabaseConfigured ? (
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                ) : supabaseConfigStatus.isInvalidFormat ? (
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                ) : (
+                  <Database className="w-5 h-5 text-slate-600 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <h3 className="font-bold text-sm">
+                    {isRealSupabaseConfigured
+                      ? 'Connected to Live Supabase Project'
+                      : supabaseConfigStatus.isInvalidFormat
+                      ? 'Invalid URL Detected: https://supabase.co'
+                      : 'Local PostgreSQL Engine Active (Zero-Config)'}
+                  </h3>
+                  <p className="text-xs mt-1 leading-relaxed">
+                    {isRealSupabaseConfigured
+                      ? `Successfully authenticating against ${supabaseConfigStatus.projectUrl || 'Supabase Cloud'}.`
+                      : supabaseConfigStatus.isInvalidFormat
+                      ? supabaseConfigStatus.invalidReason
+                      : 'The application is running with a reactive in-memory PostgreSQL engine seeded with all legacy Access students, guardians, and attendance logs. Follow the steps below when you wish to link your Supabase cloud project.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Step-by-Step Connection Instructions */}
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-5">
+              <h2 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs">1</span>
+                <span>Understanding Your Supabase Project API URL</span>
+              </h2>
+
+              <div className="space-y-2 text-xs text-slate-600 leading-relaxed">
+                <p>
+                  A common point of confusion is typing or pasting <code className="px-1.5 py-0.5 bg-rose-50 text-rose-700 rounded font-mono font-semibold">https://supabase.co</code>. That address is the <strong>marketing homepage</strong> of Supabase, not your project's REST API endpoint.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">
+                  <div className="bg-rose-50/70 border border-rose-200 rounded-lg p-3">
+                    <span className="font-bold text-rose-800 block mb-1">❌ Incorrect (Landing Page):</span>
+                    <code className="text-rose-700 font-mono text-[11px] block">https://supabase.co</code>
+                    <p className="text-[11px] text-rose-600 mt-1">Causes 404/invalid URL errors because it lacks your project subdomain.</p>
+                  </div>
+                  <div className="bg-emerald-50/70 border border-emerald-200 rounded-lg p-3">
+                    <span className="font-bold text-emerald-800 block mb-1">✅ Correct Project URL Format:</span>
+                    <code className="text-emerald-700 font-mono text-[11px] block">https://&lt;project-ref&gt;.supabase.co</code>
+                    <p className="text-[11px] text-emerald-600 mt-1">Example: <span className="font-mono">https://abcdefghijklm.supabase.co</span></p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-5">
+                <h2 className="font-bold text-sm text-slate-900 flex items-center gap-2 mb-3">
+                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs">2</span>
+                  <span>Where to Find Your Credentials in Supabase Dashboard</span>
+                </h2>
+                <ol className="list-decimal list-inside space-y-2 text-xs text-slate-600 leading-relaxed">
+                  <li>Log in to your account at <a href="https://supabase.com/dashboard" target="_blank" rel="noreferrer" className="text-emerald-700 font-semibold underline inline-flex items-center gap-1">supabase.com/dashboard <ExternalLink className="w-3 h-3" /></a></li>
+                  <li>Select your project (or click <strong>New project</strong> to create one).</li>
+                  <li>Click the <strong>Settings (gear icon)</strong> at the bottom of the left sidebar, then select <strong>API</strong>.</li>
+                  <li>Under <strong>Project URL</strong>, copy the URL ending in <code className="font-mono">.supabase.co</code>.</li>
+                  <li>Under <strong>Project API Keys</strong>, copy the public <code className="font-mono">anon</code> key.</li>
+                </ol>
+              </div>
+
+              <div className="border-t border-slate-100 pt-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs">3</span>
+                    <span>Configure in Environment (.env)</span>
+                  </h2>
+                  <button
+                    onClick={() => {
+                      const envText = `VITE_SUPABASE_URL="https://your-project-id.supabase.co"\nVITE_SUPABASE_ANON_KEY="your-anon-public-key"`;
+                      navigator.clipboard.writeText(envText);
+                      setCopiedEnv(true);
+                      setTimeout(() => setCopiedEnv(false), 2000);
+                    }}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded text-[11px] font-semibold transition-colors"
+                  >
+                    {copiedEnv ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedEnv ? 'Copied' : 'Copy .env Template'}</span>
+                  </button>
+                </div>
+                <p className="text-xs text-slate-600 mb-2">
+                  Create or edit your <code className="font-mono font-semibold">.env</code> file in the application root directory with:
+                </p>
+                <div className="bg-slate-900 text-emerald-300 p-3.5 rounded-lg font-mono text-xs overflow-x-auto border border-slate-800">
+                  <pre>{`# In your .env file:
+VITE_SUPABASE_URL="https://your-project-id.supabase.co"
+VITE_SUPABASE_ANON_KEY="your-anon-public-key"`}</pre>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-5">
+                <h2 className="font-bold text-sm text-slate-900 flex items-center gap-2 mb-2">
+                  <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs">4</span>
+                  <span>Deploy the Database Schema & Views</span>
+                </h2>
+                <p className="text-xs text-slate-600 leading-relaxed mb-3">
+                  Once connected, your Supabase project needs the 5 normalized tables and the <code className="font-mono">view_students_extended</code> view.
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setActiveTab('ddl')}
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-xs transition-colors flex items-center gap-1.5"
+                  >
+                    <Code2 className="w-3.5 h-3.5" />
+                    <span>Open SQL DDL Script</span>
+                  </button>
+                  <button
+                    onClick={handleCopy}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-semibold text-xs transition-colors flex items-center gap-1.5"
+                  >
+                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copied ? 'Copied SQL' : 'Copy All SQL (Tables + Views + RLS)'}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
