@@ -29,14 +29,40 @@ import { VbaModuleViewer } from './components/modules/VbaModuleViewer';
 import { ArchitectureModal } from './components/documentation/ArchitectureModal';
 import { MapModal } from './components/modals/MapModal';
 import { BulkEditModal } from './components/modals/BulkEditModal';
-import { CheckCircle2, RotateCcw } from 'lucide-react';
+
+// Modern Components
+import { Sidebar, ModernNavSection } from './components/modern/Sidebar';
+import { Header } from './components/modern/Header';
+import { StudentList, ExtendedStudentView } from './components/modern/StudentList';
+import { EmailListModal } from './components/modern/EmailListModal';
+import { NewStudentModal } from './components/modern/NewStudentModal';
+import { StudentDetailDrawer } from './components/modern/StudentDetailDrawer';
+import { SchemaInspector } from './components/modern/SchemaInspector';
+import { GuardiansView } from './components/modern/GuardiansView';
+import { AttendanceView } from './components/modern/AttendanceView';
+import { ModernReportsView } from './components/modern/ModernReportsView';
+
+import { localStore } from './lib/supabase';
+import { CheckCircle2, RotateCcw, Sparkles } from 'lucide-react';
 
 export default function App() {
-  // State for all 6 tables
-  const [students, setStudents] = useState<Student[]>(INITIAL_STUDENTS);
-  const [guardians, setGuardians] = useState<Guardian[]>(INITIAL_GUARDIANS);
-  const [relations, setRelations] = useState<StudentGuardianRelation[]>(INITIAL_STUDENTS_AND_GUARDIANS);
-  const [attendance, setAttendance] = useState<StudentAttendance[]>(INITIAL_ATTENDANCE);
+  // App Mode: Modern Web App (Supabase + React 19) vs Legacy Access Desktop UI
+  const [appMode, setAppMode] = useState<'modern' | 'legacy'>('modern');
+
+  // Modern Navigation State
+  const [activeModernSection, setActiveModernSection] = useState<ModernNavSection>('students');
+
+  // Modern Modals State
+  const [isNewStudentModalOpen, setIsNewStudentModalOpen] = useState(false);
+  const [isEmailListModalOpen, setIsEmailListModalOpen] = useState(false);
+  const [emailListRecipients, setEmailListRecipients] = useState<string[]>([]);
+  const [selectedDrawerStudent, setSelectedDrawerStudent] = useState<ExtendedStudentView | null>(null);
+
+  // Core Data State (synchronized with localStore)
+  const [students, setStudents] = useState<Student[]>(localStore.students);
+  const [guardians, setGuardians] = useState<Guardian[]>(localStore.guardians);
+  const [relations, setRelations] = useState<StudentGuardianRelation[]>(localStore.relations);
+  const [attendance, setAttendance] = useState<StudentAttendance[]>(localStore.attendance);
   const [filters, setFilters] = useState<FilterSetting[]>(INITIAL_FILTERS);
   const [settings, setSettings] = useState<SystemSetting[]>(INITIAL_SETTINGS);
 
@@ -47,18 +73,29 @@ export default function App() {
   const [undoStack, setUndoStack] = useState<Student[][]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Tabs system mimicking Microsoft Access tabbed documents
+  // Tabs for Legacy Access mode
   const [tabs, setTabs] = useState<OpenTab[]>([
     { id: 'frm_Student_List', title: 'Student List', type: 'form', targetId: 'Student List' },
     { id: 'frm_Welcome', title: 'Welcome', type: 'form', targetId: 'Welcome' },
   ]);
   const [activeTabId, setActiveTabId] = useState<string>('frm_Student_List');
 
-  // Modals
+  // Legacy Modals
   const [isArchitectureOpen, setIsArchitectureOpen] = useState(false);
   const [isOutlookModalOpen, setIsOutlookModalOpen] = useState(false);
   const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
   const [mappingStudent, setMappingStudent] = useState<Student | null>(null);
+
+  // Synchronize state on localStore change
+  useEffect(() => {
+    const unsub = localStore.subscribe(() => {
+      setStudents([...localStore.students]);
+      setGuardians([...localStore.guardians]);
+      setRelations([...localStore.relations]);
+      setAttendance([...localStore.attendance]);
+    });
+    return () => unsub();
+  }, []);
 
   // Keyboard shortcut for Undo (Ctrl+Z / Cmd+Z)
   useEffect(() => {
@@ -74,7 +111,28 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undoStack]);
 
-  // Handle opening an object from the Navigation Pane
+  // Bulk Update Execution
+  const handleApplyBulkUpdate = (updatedStudents: Student[], changeLogSummary: string) => {
+    setUndoStack(prev => [...prev, students]);
+    localStore.students = updatedStudents;
+    localStore.notify();
+    setSelectedStudentIds([]);
+    setToastMessage(changeLogSummary);
+    setTimeout(() => setToastMessage(null), 5000);
+  };
+
+  // Undo Last Bulk Update
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const previousState = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, prev.length - 1));
+    localStore.students = previousState;
+    localStore.notify();
+    setToastMessage("Last bulk update reverted.");
+    setTimeout(() => setToastMessage(null), 4000);
+  };
+
+  // Handle opening an object from the Legacy Navigation Pane
   const handleOpenObject = (id: string, name: string, type: AccessObjectType, params?: Record<string, any>) => {
     const existingIndex = tabs.findIndex(t => t.id === id);
     if (existingIndex >= 0) {
@@ -86,7 +144,7 @@ export default function App() {
   };
 
   const handleCloseTab = (tabId: string) => {
-    if (tabs.length === 1) return; // Keep at least one tab open
+    if (tabs.length === 1) return;
     const newTabs = tabs.filter(t => t.id !== tabId);
     setTabs(newTabs);
     if (activeTabId === tabId) {
@@ -94,426 +152,250 @@ export default function App() {
     }
   };
 
-  // Student Actions
-  const handleOpenStudentDetails = (studentId: number) => {
-    const student = students.find(s => s.id === studentId);
-    const tabId = `student_details_${studentId}`;
-    handleOpenObject(tabId, student ? `${student.lastName}, ${student.firstName}` : 'Student Details', 'form', { studentId });
+  // Modern Student Detail Opener
+  const handleOpenModernStudentDetails = (studentId: number) => {
+    const all = localStore.getViewStudentsExtended();
+    const st = all.find(s => s.id === studentId) || null;
+    setSelectedDrawerStudent(st);
   };
 
-  const handleNewStudent = () => {
-    const newId = Math.max(...students.map(s => s.id), 0) + 1;
-    const newStudentNumber = `STU-2024-${100 + newId}`;
-    const newStudent: Student = {
-      id: newId,
-      studentId: newStudentNumber,
-      firstName: 'New',
-      lastName: 'Student',
-      emailAddress: `new.student${newId}@schoolnet.org`,
-      level: 'Grade 9',
-      room: 'Room 101',
-      specialCircumstances: false,
-      dob: '2010-01-01',
-      gender: 'M',
-      address: '100 School Lane',
-      city: 'Seattle',
-      state: 'WA',
-      zipPostalCode: '98101',
-      country: 'USA',
-      emergencyContactName: 'Parent Guardian',
-      emergencyContactPhone: '(555) 000-0000',
-      emergencyContactRelationship: 'Mother',
-      notes: 'New enrollment entry.'
-    };
-    setStudents(prev => [newStudent, ...prev]);
-    handleOpenStudentDetails(newId);
+  // Modern Email List Opener
+  const handleOpenEmailList = (emails: string[]) => {
+    setEmailListRecipients(emails);
+    setIsEmailListModalOpen(true);
   };
 
-  const handleSaveStudent = (updatedStudent: Student) => {
-    setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
-  };
-
+  // Delete student
   const handleDeleteStudent = (studentId: number) => {
-    setStudents(prev => prev.filter(s => s.id !== studentId));
-    setRelations(prev => prev.filter(r => r.studentId !== studentId));
-    setAttendance(prev => prev.filter(a => a.studentId !== studentId));
+    localStore.deleteStudent(studentId);
     setSelectedStudentIds(prev => prev.filter(id => id !== studentId));
     handleCloseTab(`student_details_${studentId}`);
   };
 
-  // Selection handlers
-  const handleToggleSelectStudent = (id: number) => {
-    setSelectedStudentIds(prev => 
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
-  };
-
-  const handleSelectAllStudents = (ids: number[]) => {
-    setSelectedStudentIds(ids);
-  };
-
-  const handleClearStudentSelection = () => {
-    setSelectedStudentIds([]);
-  };
-
-  // Bulk Update Execution
-  const handleApplyBulkUpdate = (updatedStudents: Student[], changeLogSummary: string) => {
-    // Push previous state to undo stack
-    setUndoStack(prev => [...prev, students]);
-    setStudents(updatedStudents);
-    setSelectedStudentIds([]);
-    setToastMessage(changeLogSummary);
-    setTimeout(() => setToastMessage(null), 5000);
-  };
-
-  // Undo Last Bulk Update
-  const handleUndo = () => {
-    if (undoStack.length === 0) return;
-    const previousState = undoStack[undoStack.length - 1];
-    setUndoStack(prev => prev.slice(0, prev.length - 1));
-    setStudents(previousState);
-    setToastMessage("Last bulk update reverted.");
-    setTimeout(() => setToastMessage(null), 4000);
-  };
-
-  // Guardian Actions
-  const handleOpenGuardianDetails = (guardianId: number) => {
-    const guardian = guardians.find(g => g.id === guardianId);
-    const tabId = `guardian_details_${guardianId}`;
-    handleOpenObject(tabId, guardian ? `${guardian.lastName}, ${guardian.firstName}` : 'Guardian Details', 'form', { guardianId });
-  };
-
-  const handleSaveGuardian = (updatedGuardian: Guardian) => {
-    setGuardians(prev => prev.map(g => g.id === updatedGuardian.id ? updatedGuardian : g));
-  };
-
-  // Student-Guardian Relations
-  const handleAddRelation = (newRel: Omit<StudentGuardianRelation, 'id'>) => {
-    const newId = Math.max(...relations.map(r => r.id), 0) + 1;
-    setRelations(prev => [...prev, { ...newRel, id: newId }]);
-  };
-
-  const handleRemoveRelation = (relationId: number) => {
-    setRelations(prev => prev.filter(r => r.id !== relationId));
-  };
-
-  // Attendance Actions
-  const handleAddAttendance = (newRecord: Omit<StudentAttendance, 'id'>) => {
-    const newId = Math.max(...attendance.map(a => a.id), 0) + 1;
-    setAttendance(prev => [{ ...newRecord, id: newId }, ...prev]);
-  };
-
-  const handleDeleteAttendance = (attendanceId: number) => {
-    setAttendance(prev => prev.filter(a => a.id !== attendanceId));
-  };
-
-  // Outlook import
-  const handleImportFromOutlook = (imported: Partial<Student>) => {
-    const newId = Math.max(...students.map(s => s.id), 0) + 1;
-    const fullStudent: Student = {
-      id: newId,
-      studentId: imported.studentId || `STU-2024-${100 + newId}`,
-      firstName: imported.firstName || 'Imported',
-      lastName: imported.lastName || 'Student',
-      emailAddress: imported.emailAddress || 'imported@example.com',
-      level: imported.level || 'Grade 9',
-      room: imported.room || 'Room 101',
-      specialCircumstances: false,
-      dob: imported.dob || '2009-01-01',
-      gender: imported.gender || 'Other',
-      address: imported.address || 'Address',
-      city: imported.city || 'City',
-      state: imported.state || 'WA',
-      zipPostalCode: imported.zipPostalCode || '00000',
-      country: 'USA',
-      emergencyContactName: imported.emergencyContactName || 'Emergency Contact',
-      emergencyContactPhone: imported.emergencyContactPhone || '(555) 000-0000',
-      emergencyContactRelationship: imported.emergencyContactRelationship || 'Parent',
-      notes: imported.notes
-    };
-    setStudents(prev => [fullStudent, ...prev]);
-    handleOpenStudentDetails(newId);
-  };
-
-  // Active Tab Rendering
-  const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0];
-
-  const renderActiveContent = () => {
-    if (!activeTab) return null;
-
-    // Student Details
-    if (activeTab.id.startsWith('student_details_')) {
-      const studentId = activeTab.params?.studentId;
-      const student = students.find(s => s.id === studentId);
-      if (!student) {
+  // Render Modern View Content
+  const renderModernSectionContent = () => {
+    switch (activeModernSection) {
+      case 'students':
         return (
-          <div className="p-8 text-center text-slate-500">
-            Student record not found or was deleted.
-          </div>
-        );
-      }
-      return (
-        <StudentDetailsForm
-          student={student}
-          allGuardians={guardians}
-          allRelations={relations}
-          allAttendance={attendance}
-          onSaveStudent={handleSaveStudent}
-          onDeleteStudent={handleDeleteStudent}
-          onClose={() => handleCloseTab(activeTab.id)}
-          onOpenGuardianDetails={handleOpenGuardianDetails}
-          onAddRelation={handleAddRelation}
-          onRemoveRelation={handleRemoveRelation}
-          onAddAttendance={handleAddAttendance}
-          onDeleteAttendance={handleDeleteAttendance}
-          onOpenMap={(st) => setMappingStudent(st)}
-        />
-      );
-    }
-
-    // Guardian Details
-    if (activeTab.id.startsWith('guardian_details_')) {
-      const guardianId = activeTab.params?.guardianId;
-      const guardian = guardians.find(g => g.id === guardianId);
-      if (!guardian) {
-        return <div className="p-8 text-center text-slate-500">Guardian record not found.</div>;
-      }
-      return (
-        <GuardianDetailsForm
-          guardian={guardian}
-          allStudents={students}
-          allRelations={relations}
-          onSaveGuardian={handleSaveGuardian}
-          onClose={() => handleCloseTab(activeTab.id)}
-          onOpenStudent={handleOpenStudentDetails}
-        />
-      );
-    }
-
-    // Standard Named Access Objects
-    switch (activeTab.id) {
-      // FORMS
-      case 'frm_Welcome':
-        return (
-          <WelcomeForm
-            onOpenStudentList={() => handleOpenObject('frm_Student_List', 'Student List', 'form')}
-            onNewStudent={handleNewStudent}
-            onOpenAttendance={() => handleOpenObject('frm_Attendance_Subform', 'Attendance Subform', 'form')}
-            onOpenReport={(rpt) => handleOpenObject(`rpt_${rpt.replace(/\s+/g, '_')}`, rpt, 'report')}
-            onOpenArchitecture={() => setIsArchitectureOpen(true)}
-          />
-        );
-
-      case 'frm_Student_List':
-        return (
-          <StudentListForm
-            students={students}
-            onOpenStudentDetails={handleOpenStudentDetails}
-            onNewStudent={handleNewStudent}
-            onOpenOutlookImport={() => setIsOutlookModalOpen(true)}
-            onOpenMap={(st) => setMappingStudent(st)}
-            selectedStudentIds={selectedStudentIds}
-            onToggleSelectStudent={handleToggleSelectStudent}
-            onSelectAllStudents={handleSelectAllStudents}
-            onClearStudentSelection={handleClearStudentSelection}
+          <StudentList
+            onNewStudent={() => setIsNewStudentModalOpen(true)}
+            onOpenEmailList={handleOpenEmailList}
+            onOpenStudentDetails={handleOpenModernStudentDetails}
             onOpenBulkEdit={() => setIsBulkEditModalOpen(true)}
           />
         );
-
-      case 'frm_Guardian_List':
+      case 'guardians':
+        return <GuardiansView />;
+      case 'attendance':
+        return <AttendanceView />;
+      case 'reports':
+        return <ModernReportsView />;
+      case 'schema':
+        return <SchemaInspector />;
+      case 'settings':
         return (
-          <GuardianListForm
-            guardians={guardians}
-            onOpenGuardian={handleOpenGuardianDetails}
-          />
-        );
-
-      case 'frm_Guardian_Details':
-        return guardians[0] ? (
-          <GuardianDetailsForm
-            guardian={guardians[0]}
-            allStudents={students}
-            allRelations={relations}
-            onSaveGuardian={handleSaveGuardian}
-            onClose={() => handleCloseTab(activeTab.id)}
-            onOpenStudent={handleOpenStudentDetails}
-          />
-        ) : null;
-
-      case 'frm_Student_Details':
-        return students[0] ? (
-          <StudentDetailsForm
-            student={students[0]}
-            allGuardians={guardians}
-            allRelations={relations}
-            allAttendance={attendance}
-            onSaveStudent={handleSaveStudent}
-            onDeleteStudent={handleDeleteStudent}
-            onClose={() => handleCloseTab(activeTab.id)}
-            onOpenGuardianDetails={handleOpenGuardianDetails}
-            onAddRelation={handleAddRelation}
-            onRemoveRelation={handleRemoveRelation}
-            onAddAttendance={handleAddAttendance}
-            onDeleteAttendance={handleDeleteAttendance}
-            onOpenMap={(st) => setMappingStudent(st)}
-          />
-        ) : null;
-
-      case 'frm_Attendance_Subform':
-        return (
-          <div className="p-4 bg-white h-full overflow-auto">
-            <h2 className="font-bold text-slate-800 text-sm mb-3">Attendance Subform (Stand-alone Design View)</h2>
-            <TableDatasheetView
-              tableName="Student Attendance"
-              students={students}
-              guardians={guardians}
-              relations={relations}
-              attendance={attendance}
-              filters={filters}
-              settings={settings}
-            />
+          <div className="p-8 max-w-4xl mx-auto space-y-4">
+            <h1 className="font-bold text-base text-slate-900">System & School Configuration</h1>
+            <p className="text-xs text-slate-500">Settings table values replicated in PostgreSQL</p>
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-700">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">Setting Key</th>
+                    <th className="px-4 py-3 font-semibold">Setting Value</th>
+                    <th className="px-4 py-3 font-semibold">Category</th>
+                    <th className="px-4 py-3 font-semibold">Description</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {settings.map(s => (
+                    <tr key={s.id} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-3 font-mono font-medium text-slate-800">{s.settingName}</td>
+                      <td className="px-4 py-3 font-semibold text-emerald-800">{s.settingValue}</td>
+                      <td className="px-4 py-3 text-slate-500">{s.category}</td>
+                      <td className="px-4 py-3 text-slate-600">{s.description}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         );
-
-      case 'frm_Guardians_Subform':
-        return (
-          <div className="p-4 bg-white h-full overflow-auto">
-            <h2 className="font-bold text-slate-800 text-sm mb-3">Guardians Subform (Stand-alone Design View)</h2>
-            <TableDatasheetView
-              tableName="Students and Guardians"
-              students={students}
-              guardians={guardians}
-              relations={relations}
-              attendance={attendance}
-              filters={filters}
-              settings={settings}
-            />
-          </div>
-        );
-
-      case 'frm_Filter_Details':
-        return (
-          <div className="p-4 bg-white h-full overflow-auto">
-            <h2 className="font-bold text-slate-800 text-sm mb-3">Filter Details (Form View)</h2>
-            <TableDatasheetView
-              tableName="Filters"
-              students={students}
-              guardians={guardians}
-              relations={relations}
-              attendance={attendance}
-              filters={filters}
-              settings={settings}
-            />
-          </div>
-        );
-
-      // TABLES
-      case 'tbl_Students':
-        return <TableDatasheetView tableName="Students" students={students} guardians={guardians} relations={relations} attendance={attendance} filters={filters} settings={settings} />;
-      case 'tbl_Guardians':
-        return <TableDatasheetView tableName="Guardians" students={students} guardians={guardians} relations={relations} attendance={attendance} filters={filters} settings={settings} />;
-      case 'tbl_Students_and_Guardians':
-        return <TableDatasheetView tableName="Students and Guardians" students={students} guardians={guardians} relations={relations} attendance={attendance} filters={filters} settings={settings} />;
-      case 'tbl_Student_Attendance':
-        return <TableDatasheetView tableName="Student Attendance" students={students} guardians={guardians} relations={relations} attendance={attendance} filters={filters} settings={settings} />;
-      case 'tbl_Filters':
-        return <TableDatasheetView tableName="Filters" students={students} guardians={guardians} relations={relations} attendance={attendance} filters={filters} settings={settings} />;
-      case 'tbl_Settings':
-        return <TableDatasheetView tableName="Settings" students={students} guardians={guardians} relations={relations} attendance={attendance} filters={filters} settings={settings} />;
-
-      // QUERIES
-      case 'qry_Guardians_Extended':
-      case 'qry_Student_Attendance_Count':
-      case 'qry_Student_Attendance_Extended':
-      case 'qry_Students_and_Guardians_Extended':
-      case 'qry_Students_Extended':
-        return <QueryDataView queryName={activeTab.title} students={students} guardians={guardians} relations={relations} attendance={attendance} />;
-
-      // MACROS
-      case 'mcr_AutoExec':
-      case 'mcr_Filters':
-      case 'mcr_Search':
-        return <MacroViewer macroName={activeTab.title} />;
-
-      // MODULES
-      case 'mod_modMapping':
-        return <VbaModuleViewer students={students} onOpenMap={(st) => setMappingStudent(st)} />;
-
-      // REPORTS
       default:
-        if (activeTab.type === 'report') {
-          return (
-            <ReportViewer
-              reportName={activeTab.title}
-              students={students}
-              guardians={guardians}
-              relations={relations}
-              attendance={attendance}
-            />
-          );
-        }
-        return <div className="p-8 text-center text-slate-500">Select an object from the left navigation pane.</div>;
+        return null;
     }
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-200">
-      {/* Microsoft Access Top Ribbon */}
-      <AccessRibbon
-        onNewStudent={handleNewStudent}
-        onOpenOutlookImport={() => setIsOutlookModalOpen(true)}
-        onOpenArchitecture={() => setIsArchitectureOpen(true)}
-        onRefreshData={() => {
-          setStudents([...students]);
-        }}
-        onQuickReport={(rpt) => handleOpenObject(`rpt_${rpt.replace(/\s+/g, '_')}`, rpt, 'report')}
-        onOpenBulkEdit={() => setIsBulkEditModalOpen(true)}
-        canUndo={undoStack.length > 0}
-        onUndo={handleUndo}
-      />
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-slate-100 font-sans">
+      {/* Top Transition Switcher Bar */}
+      <div className="bg-slate-950 text-white px-4 py-1.5 flex items-center justify-between text-xs shrink-0 border-b border-slate-800 shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-emerald-400">Application Architecture:</span>
+          <span className="text-slate-300">
+            {appMode === 'modern' ? 'Supabase PostgreSQL + React 19 (Modernized)' : 'Microsoft Access Desktop Interface (Legacy)'}
+          </span>
+        </div>
 
-      {/* Main Workspace: Left Navigation Pane + Tabbed Document Canvas */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Navigation Pane matching the user's screenshots */}
-        <AccessNavPane
-          activeTabId={activeTabId}
-          onOpenObject={handleOpenObject}
-          onNewStudent={handleNewStudent}
-        />
-
-        {/* Tabbed Documents Area */}
-        <main className="flex-1 flex flex-col overflow-hidden bg-slate-100 relative">
-          <TabBar
-            tabs={tabs}
-            activeTabId={activeTabId}
-            onSelectTab={setActiveTabId}
-            onCloseTab={handleCloseTab}
-          />
-
-          <div className="flex-1 overflow-hidden relative">
-            {renderActiveContent()}
-          </div>
-
-          {/* Action Notification Toast */}
-          {toastMessage && (
-            <div className="absolute bottom-4 right-4 z-40 bg-slate-900 text-white px-4 py-2.5 rounded shadow-lg flex items-center gap-3 text-xs border border-slate-700 animate-slide-up">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>{toastMessage}</span>
-              {undoStack.length > 0 && (
-                <button
-                  onClick={handleUndo}
-                  className="ml-2 flex items-center gap-1 text-amber-300 hover:text-amber-200 underline font-semibold text-xs"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Undo</span>
-                </button>
-              )}
-            </div>
-          )}
-        </main>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setAppMode('modern')}
+            className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+              appMode === 'modern' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Modern Web App (Supabase)
+          </button>
+          <button
+            onClick={() => setAppMode('legacy')}
+            className={`px-3 py-1 rounded text-xs font-semibold transition-all ${
+              appMode === 'legacy' ? 'bg-[#8b1f24] text-white shadow-xs' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Legacy Access Desktop UI
+          </button>
+        </div>
       </div>
 
-      {/* Bulk Editing & Find/Replace Utility Modal */}
+      {appMode === 'modern' ? (
+        /* MODERN FULL-STACK APPLICATION VIEW */
+        <div className="flex-1 flex overflow-hidden">
+          {/* Navigation Sidebar */}
+          <Sidebar
+            activeSection={activeModernSection}
+            onSelectSection={setActiveModernSection}
+            onSwitchToLegacyAccess={() => setAppMode('legacy')}
+            studentCount={students.length}
+          />
+
+          {/* Main Content Viewport */}
+          <div className="flex-1 flex flex-col overflow-hidden relative">
+            <Header
+              activeSection={activeModernSection}
+              onOpenSchema={() => setActiveModernSection('schema')}
+            />
+
+            <main className="flex-1 overflow-hidden relative">
+              {renderModernSectionContent()}
+            </main>
+
+            {/* Action Notification Toast */}
+            {toastMessage && (
+              <div className="absolute bottom-4 right-4 z-40 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-3 text-xs border border-slate-700 animate-slide-up">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span>{toastMessage}</span>
+                {undoStack.length > 0 && (
+                  <button
+                    onClick={handleUndo}
+                    className="ml-2 flex items-center gap-1 text-amber-300 hover:text-amber-200 underline font-semibold text-xs"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Undo</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* LEGACY MICROSOFT ACCESS REPLICANT VIEW */
+        <div className="flex-1 flex flex-col overflow-hidden bg-slate-200">
+          <AccessRibbon
+            onNewStudent={() => setIsNewStudentModalOpen(true)}
+            onOpenOutlookImport={() => setIsOutlookModalOpen(true)}
+            onOpenArchitecture={() => setIsArchitectureOpen(true)}
+            onRefreshData={() => setStudents([...localStore.students])}
+            onQuickReport={(rpt) => handleOpenObject(`rpt_${rpt.replace(/\s+/g, '_')}`, rpt, 'report')}
+            onOpenBulkEdit={() => setIsBulkEditModalOpen(true)}
+            canUndo={undoStack.length > 0}
+            onUndo={handleUndo}
+          />
+
+          <div className="flex-1 flex overflow-hidden">
+            <AccessNavPane
+              activeTabId={activeTabId}
+              onOpenObject={handleOpenObject}
+              onNewStudent={() => setIsNewStudentModalOpen(true)}
+            />
+
+            <main className="flex-1 flex flex-col overflow-hidden bg-slate-100 relative">
+              <TabBar
+                tabs={tabs}
+                activeTabId={activeTabId}
+                onSelectTab={setActiveTabId}
+                onCloseTab={handleCloseTab}
+              />
+
+              <div className="flex-1 overflow-hidden relative">
+                {activeTabId === 'frm_Welcome' ? (
+                  <WelcomeForm
+                    onOpenStudentList={() => handleOpenObject('frm_Student_List', 'Student List', 'form')}
+                    onNewStudent={() => setIsNewStudentModalOpen(true)}
+                    onOpenAttendance={() => handleOpenObject('frm_Attendance_Subform', 'Attendance Subform', 'form')}
+                    onOpenReport={(rpt) => handleOpenObject(`rpt_${rpt.replace(/\s+/g, '_')}`, rpt, 'report')}
+                    onOpenArchitecture={() => setIsArchitectureOpen(true)}
+                  />
+                ) : activeTabId === 'frm_Student_List' ? (
+                  <StudentListForm
+                    students={students}
+                    onOpenStudentDetails={handleOpenModernStudentDetails}
+                    onNewStudent={() => setIsNewStudentModalOpen(true)}
+                    onOpenOutlookImport={() => setIsOutlookModalOpen(true)}
+                    onOpenMap={(st) => setMappingStudent(st)}
+                    selectedStudentIds={selectedStudentIds}
+                    onToggleSelectStudent={(id) => {
+                      setSelectedStudentIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+                    }}
+                    onSelectAllStudents={setSelectedStudentIds}
+                    onClearStudentSelection={() => setSelectedStudentIds([])}
+                    onOpenBulkEdit={() => setIsBulkEditModalOpen(true)}
+                  />
+                ) : (
+                  <TableDatasheetView
+                    tableName="Students"
+                    students={students}
+                    guardians={guardians}
+                    relations={relations}
+                    attendance={attendance}
+                    filters={filters}
+                    settings={settings}
+                  />
+                )}
+              </div>
+            </main>
+          </div>
+        </div>
+      )}
+
+      {/* Modern Student Creation Modal */}
+      <NewStudentModal
+        isOpen={isNewStudentModalOpen}
+        onClose={() => setIsNewStudentModalOpen(false)}
+        onStudentCreated={() => {
+          setStudents([...localStore.students]);
+          setToastMessage("New student enrolled in Supabase PostgreSQL database.");
+          setTimeout(() => setToastMessage(null), 4000);
+        }}
+      />
+
+      {/* Modern E-mail List Modal */}
+      <EmailListModal
+        isOpen={isEmailListModalOpen}
+        onClose={() => setIsEmailListModalOpen(false)}
+        emailAddresses={emailListRecipients}
+      />
+
+      {/* Modern Student Detail Slide-Over Drawer */}
+      <StudentDetailDrawer
+        student={selectedDrawerStudent}
+        onClose={() => setSelectedDrawerStudent(null)}
+        onDelete={handleDeleteStudent}
+        onOpenMap={(addr) => {
+          window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`, '_blank');
+        }}
+      />
+
+      {/* Bulk Edit & Find/Replace Utility Modal */}
       <BulkEditModal
         isOpen={isBulkEditModalOpen}
         onClose={() => setIsBulkEditModalOpen(false)}
@@ -533,7 +415,11 @@ export default function App() {
       <OutlookImportModal
         isOpen={isOutlookModalOpen}
         onClose={() => setIsOutlookModalOpen(false)}
-        onImportStudent={handleImportFromOutlook}
+        onImportStudent={(imported) => {
+          localStore.insertStudent(imported);
+          setToastMessage("Student imported from Outlook contacts.");
+          setTimeout(() => setToastMessage(null), 4000);
+        }}
       />
 
       {/* modMapping Address Resolver Modal */}
