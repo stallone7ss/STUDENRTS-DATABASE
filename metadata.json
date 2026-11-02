@@ -1,0 +1,6 @@
+{
+  "name": "Access Student Management Architecture & Studio",
+  "description": "Reverse-engineered database schema, SQL DDL, queries, reports, and interactive runtime for the Microsoft Access Student Management database.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
