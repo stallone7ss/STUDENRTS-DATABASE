@@ -6,20 +6,28 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { INITIAL_STUDENTS, INITIAL_GUARDIANS, INITIAL_STUDENTS_AND_GUARDIANS, INITIAL_ATTENDANCE } from '../data/initialData';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+function getRealSupabaseClient(): SupabaseClient | null {
+  const url = import.meta.env.VITE_SUPABASE_URL;
+  const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const isRealSupabaseConfigured = Boolean(
-  supabaseUrl && 
-  supabaseAnonKey && 
-  supabaseUrl !== 'https://your-project-id.supabase.co' &&
-  !supabaseUrl.includes('your-project-id')
-);
+  if (!url || !key) return null;
+  if (typeof url !== 'string' || typeof key !== 'string') return null;
+  if (url.includes('your-project-id') || url.includes('placeholder')) return null;
 
-// If real credentials are provided, instantiate the actual Supabase client
-export const realSupabase: SupabaseClient | null = isRealSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
-  : null;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return createClient(url, key);
+  } catch (_e) {
+    return null;
+  }
+}
+
+// Safely instantiate real client only if valid URL is supplied
+export const realSupabase: SupabaseClient | null = getRealSupabaseClient();
+export const isRealSupabaseConfigured: boolean = realSupabase !== null;
 
 // Local In-Memory Reactive Store (Emulating Supabase Database for instant local testing)
 class LocalSupabaseStore {
