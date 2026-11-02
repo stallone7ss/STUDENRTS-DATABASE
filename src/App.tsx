@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   INITIAL_STUDENTS, 
   INITIAL_GUARDIANS, 
@@ -28,6 +28,8 @@ import { MacroViewer } from './components/macros/MacroViewer';
 import { VbaModuleViewer } from './components/modules/VbaModuleViewer';
 import { ArchitectureModal } from './components/documentation/ArchitectureModal';
 import { MapModal } from './components/modals/MapModal';
+import { BulkEditModal } from './components/modals/BulkEditModal';
+import { CheckCircle2, RotateCcw } from 'lucide-react';
 
 export default function App() {
   // State for all 6 tables
@@ -37,6 +39,13 @@ export default function App() {
   const [attendance, setAttendance] = useState<StudentAttendance[]>(INITIAL_ATTENDANCE);
   const [filters, setFilters] = useState<FilterSetting[]>(INITIAL_FILTERS);
   const [settings, setSettings] = useState<SystemSetting[]>(INITIAL_SETTINGS);
+
+  // Multi-Record Selection
+  const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
+
+  // Undo Stack for Bulk Operations
+  const [undoStack, setUndoStack] = useState<Student[][]>([]);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Tabs system mimicking Microsoft Access tabbed documents
   const [tabs, setTabs] = useState<OpenTab[]>([
@@ -48,7 +57,22 @@ export default function App() {
   // Modals
   const [isArchitectureOpen, setIsArchitectureOpen] = useState(false);
   const [isOutlookModalOpen, setIsOutlookModalOpen] = useState(false);
+  const [isBulkEditModalOpen, setIsBulkEditModalOpen] = useState(false);
   const [mappingStudent, setMappingStudent] = useState<Student | null>(null);
+
+  // Keyboard shortcut for Undo (Ctrl+Z / Cmd+Z)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        if (undoStack.length > 0) {
+          e.preventDefault();
+          handleUndo();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undoStack]);
 
   // Handle opening an object from the Navigation Pane
   const handleOpenObject = (id: string, name: string, type: AccessObjectType, params?: Record<string, any>) => {
@@ -113,7 +137,43 @@ export default function App() {
     setStudents(prev => prev.filter(s => s.id !== studentId));
     setRelations(prev => prev.filter(r => r.studentId !== studentId));
     setAttendance(prev => prev.filter(a => a.studentId !== studentId));
+    setSelectedStudentIds(prev => prev.filter(id => id !== studentId));
     handleCloseTab(`student_details_${studentId}`);
+  };
+
+  // Selection handlers
+  const handleToggleSelectStudent = (id: number) => {
+    setSelectedStudentIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllStudents = (ids: number[]) => {
+    setSelectedStudentIds(ids);
+  };
+
+  const handleClearStudentSelection = () => {
+    setSelectedStudentIds([]);
+  };
+
+  // Bulk Update Execution
+  const handleApplyBulkUpdate = (updatedStudents: Student[], changeLogSummary: string) => {
+    // Push previous state to undo stack
+    setUndoStack(prev => [...prev, students]);
+    setStudents(updatedStudents);
+    setSelectedStudentIds([]);
+    setToastMessage(changeLogSummary);
+    setTimeout(() => setToastMessage(null), 5000);
+  };
+
+  // Undo Last Bulk Update
+  const handleUndo = () => {
+    if (undoStack.length === 0) return;
+    const previousState = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, prev.length - 1));
+    setStudents(previousState);
+    setToastMessage("Last bulk update reverted.");
+    setTimeout(() => setToastMessage(null), 4000);
   };
 
   // Guardian Actions
@@ -252,6 +312,11 @@ export default function App() {
             onNewStudent={handleNewStudent}
             onOpenOutlookImport={() => setIsOutlookModalOpen(true)}
             onOpenMap={(st) => setMappingStudent(st)}
+            selectedStudentIds={selectedStudentIds}
+            onToggleSelectStudent={handleToggleSelectStudent}
+            onSelectAllStudents={handleSelectAllStudents}
+            onClearStudentSelection={handleClearStudentSelection}
+            onOpenBulkEdit={() => setIsBulkEditModalOpen(true)}
           />
         );
 
@@ -402,6 +467,9 @@ export default function App() {
           setStudents([...students]);
         }}
         onQuickReport={(rpt) => handleOpenObject(`rpt_${rpt.replace(/\s+/g, '_')}`, rpt, 'report')}
+        onOpenBulkEdit={() => setIsBulkEditModalOpen(true)}
+        canUndo={undoStack.length > 0}
+        onUndo={handleUndo}
       />
 
       {/* Main Workspace: Left Navigation Pane + Tabbed Document Canvas */}
@@ -414,7 +482,7 @@ export default function App() {
         />
 
         {/* Tabbed Documents Area */}
-        <main className="flex-1 flex flex-col overflow-hidden bg-slate-100">
+        <main className="flex-1 flex flex-col overflow-hidden bg-slate-100 relative">
           <TabBar
             tabs={tabs}
             activeTabId={activeTabId}
@@ -425,8 +493,35 @@ export default function App() {
           <div className="flex-1 overflow-hidden relative">
             {renderActiveContent()}
           </div>
+
+          {/* Action Notification Toast */}
+          {toastMessage && (
+            <div className="absolute bottom-4 right-4 z-40 bg-slate-900 text-white px-4 py-2.5 rounded shadow-lg flex items-center gap-3 text-xs border border-slate-700 animate-slide-up">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{toastMessage}</span>
+              {undoStack.length > 0 && (
+                <button
+                  onClick={handleUndo}
+                  className="ml-2 flex items-center gap-1 text-amber-300 hover:text-amber-200 underline font-semibold text-xs"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Undo</span>
+                </button>
+              )}
+            </div>
+          )}
         </main>
       </div>
+
+      {/* Bulk Editing & Find/Replace Utility Modal */}
+      <BulkEditModal
+        isOpen={isBulkEditModalOpen}
+        onClose={() => setIsBulkEditModalOpen(false)}
+        allStudents={students}
+        selectedStudentIds={selectedStudentIds}
+        filteredStudentIds={students.map(s => s.id)}
+        onApplyBulkUpdate={handleApplyBulkUpdate}
+      />
 
       {/* Architecture & SQL DDL Modal */}
       <ArchitectureModal

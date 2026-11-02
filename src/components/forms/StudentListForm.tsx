@@ -15,7 +15,9 @@ import {
   Check, 
   AlertTriangle,
   ArrowUpDown,
-  FileSpreadsheet
+  Replace,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { Student } from '../../types/database';
 
@@ -25,6 +27,11 @@ interface StudentListFormProps {
   onNewStudent: () => void;
   onOpenOutlookImport: () => void;
   onOpenMap: (student: Student) => void;
+  selectedStudentIds: number[];
+  onToggleSelectStudent: (id: number) => void;
+  onSelectAllStudents: (ids: number[]) => void;
+  onClearStudentSelection: () => void;
+  onOpenBulkEdit: () => void;
 }
 
 export const StudentListForm: React.FC<StudentListFormProps> = ({
@@ -33,12 +40,17 @@ export const StudentListForm: React.FC<StudentListFormProps> = ({
   onNewStudent,
   onOpenOutlookImport,
   onOpenMap,
+  selectedStudentIds,
+  onToggleSelectStudent,
+  onSelectAllStudents,
+  onClearStudentSelection,
+  onOpenBulkEdit,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [levelFilter, setLevelFilter] = useState('ALL');
   const [roomFilter, setRoomFilter] = useState('ALL');
   const [specialCircumstancesOnly, setSpecialCircumstancesOnly] = useState(false);
-  const [selectedStudentId, setSelectedStudentId] = useState<number | null>(students[0]?.id || null);
+  const [activeRowId, setActiveRowId] = useState<number | null>(students[0]?.id || null);
 
   // Sorting
   const [sortField, setSortField] = useState<keyof Student>('lastName');
@@ -56,7 +68,7 @@ export const StudentListForm: React.FC<StudentListFormProps> = ({
   // Filtered and sorted students
   const filteredStudents = useMemo(() => {
     return students.filter(student => {
-      // Search matching Macro logic: [Student ID] LIKE *search* OR [First Name] LIKE *search* OR [Last Name] LIKE *search* OR [E-mail Address] LIKE *search*
+      // Search matching Macro logic
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const matchesQuery = 
@@ -106,7 +118,19 @@ export const StudentListForm: React.FC<StudentListFormProps> = ({
     setSpecialCircumstancesOnly(false);
   };
 
-  const selectedIndex = filteredStudents.findIndex(s => s.id === selectedStudentId);
+  const selectedIndex = filteredStudents.findIndex(s => s.id === activeRowId);
+
+  // Master checkbox state
+  const allFilteredSelected = filteredStudents.length > 0 && filteredStudents.every(s => selectedStudentIds.includes(s.id));
+  const someFilteredSelected = filteredStudents.some(s => selectedStudentIds.includes(s.id));
+
+  const handleToggleSelectAll = () => {
+    if (allFilteredSelected) {
+      onClearStudentSelection();
+    } else {
+      onSelectAllStudents(filteredStudents.map(s => s.id));
+    }
+  };
 
   return (
     <div className="h-full flex flex-col bg-white select-none">
@@ -129,6 +153,24 @@ export const StudentListForm: React.FC<StudentListFormProps> = ({
           >
             <Mail className="w-3.5 h-3.5 text-blue-600" />
             <span>Add From Outlook</span>
+          </button>
+
+          {/* Bulk Edit & Find/Replace Button */}
+          <button
+            onClick={onOpenBulkEdit}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold shadow-xs transition-colors cursor-pointer ${
+              selectedStudentIds.length > 0 
+                ? 'bg-amber-600 hover:bg-amber-700 text-white animate-pulse-once' 
+                : 'bg-white hover:bg-slate-50 border border-slate-300 text-slate-800'
+            }`}
+            title="Batch Update / Find and Replace across multiple student records"
+          >
+            <Replace className={`w-3.5 h-3.5 ${selectedStudentIds.length > 0 ? 'text-white' : 'text-amber-700'}`} />
+            <span>
+              {selectedStudentIds.length > 0 
+                ? `Bulk Edit (${selectedStudentIds.length} Selected)` 
+                : 'Bulk Edit & Replace'}
+            </span>
           </button>
 
           <div className="h-5 w-px bg-slate-300 mx-1 hidden sm:block"></div>
@@ -207,13 +249,58 @@ export const StudentListForm: React.FC<StudentListFormProps> = ({
         </div>
       </div>
 
+      {/* Floating Selection Alert when records are selected */}
+      {selectedStudentIds.length > 0 && (
+        <div className="bg-amber-50 border-b border-amber-200 px-3 py-1.5 flex items-center justify-between text-xs text-amber-950 shrink-0">
+          <div className="flex items-center gap-2">
+            <CheckSquare className="w-4 h-4 text-amber-700" />
+            <span className="font-semibold">
+              {selectedStudentIds.length} of {students.length} student records selected
+            </span>
+            <span className="text-slate-400">|</span>
+            <button
+              onClick={handleToggleSelectAll}
+              className="text-amber-900 hover:underline font-medium text-[11px]"
+            >
+              {allFilteredSelected ? 'Deselect All' : `Select All ${filteredStudents.length} Filtered`}
+            </button>
+            <button
+              onClick={onClearStudentSelection}
+              className="text-slate-500 hover:text-slate-800 text-[11px]"
+            >
+              Clear Selection
+            </button>
+          </div>
+
+          <button
+            onClick={onOpenBulkEdit}
+            className="flex items-center gap-1 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded font-semibold text-xs shadow-xs"
+          >
+            <Replace className="w-3.5 h-3.5" />
+            <span>Launch Bulk Editor</span>
+          </button>
+        </div>
+      )}
+
       {/* Datasheet Table View */}
       <div className="flex-1 overflow-auto bg-white border-b border-slate-300">
         <table className="w-full text-left text-xs border-collapse">
           {/* Table Header with Microsoft Access Grey Datasheet styling */}
           <thead className="bg-slate-200 text-slate-800 sticky top-0 border-b border-slate-300 z-10 shadow-xs">
             <tr>
-              <th className="w-8 px-2 py-1.5 border-r border-slate-300 text-center font-normal text-slate-400"></th>
+              {/* Record Selector & Master Select-All Checkbox */}
+              <th className="w-12 px-2 py-1.5 border-r border-slate-300 text-center font-normal">
+                <input
+                  type="checkbox"
+                  checked={allFilteredSelected}
+                  ref={el => {
+                    if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected;
+                  }}
+                  onChange={handleToggleSelectAll}
+                  className="rounded border-slate-300 text-red-900 focus:ring-red-900 cursor-pointer"
+                  title="Select / Deselect all visible records"
+                />
+              </th>
               <th 
                 onClick={() => handleSort('studentId')}
                 className="px-3 py-1.5 border-r border-slate-300 font-semibold cursor-pointer hover:bg-slate-300/80 transition-colors"
@@ -298,21 +385,38 @@ export const StudentListForm: React.FC<StudentListFormProps> = ({
               </tr>
             ) : (
               filteredStudents.map((student) => {
-                const isSelected = student.id === selectedStudentId;
+                const isActiveRow = student.id === activeRowId;
+                const isChecked = selectedStudentIds.includes(student.id);
+
                 return (
                   <tr
                     key={student.id}
-                    onClick={() => setSelectedStudentId(student.id)}
+                    onClick={() => setActiveRowId(student.id)}
                     onDoubleClick={() => onOpenStudentDetails(student.id)}
                     className={`cursor-pointer transition-colors ${
-                      isSelected 
-                        ? 'bg-blue-100/90 text-blue-950 font-medium' 
-                        : 'hover:bg-slate-50 text-slate-800'
+                      isChecked
+                        ? 'bg-amber-50/80 text-amber-950 font-medium'
+                        : isActiveRow 
+                          ? 'bg-blue-100/90 text-blue-950 font-medium' 
+                          : 'hover:bg-slate-50 text-slate-800'
                     }`}
                   >
-                    {/* Access Record Selector Column */}
-                    <td className="px-2 py-1.5 text-center border-r border-slate-200 bg-slate-100/70 text-slate-500 font-mono text-[10px]">
-                      {isSelected ? '▶' : ''}
+                    {/* Access Record Selector & Checkbox Column */}
+                    <td 
+                      className="px-2 py-1.5 text-center border-r border-slate-200 bg-slate-100/70"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span className="font-mono text-[9px] text-slate-400 w-2.5">
+                          {isActiveRow ? '▶' : ''}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => onToggleSelectStudent(student.id)}
+                          className="rounded border-slate-300 text-red-900 focus:ring-red-900 cursor-pointer"
+                        />
+                      </div>
                     </td>
 
                     {/* Student ID */}
@@ -397,7 +501,7 @@ export const StudentListForm: React.FC<StudentListFormProps> = ({
           <div className="flex items-center border border-slate-300 rounded bg-white">
             <button
               disabled={filteredStudents.length === 0 || selectedIndex <= 0}
-              onClick={() => setSelectedStudentId(filteredStudents[0]?.id)}
+              onClick={() => setActiveRowId(filteredStudents[0]?.id)}
               className="px-1.5 py-0.5 hover:bg-slate-100 disabled:opacity-30 border-r border-slate-300"
               title="First Record"
             >
@@ -406,7 +510,7 @@ export const StudentListForm: React.FC<StudentListFormProps> = ({
             <button
               disabled={filteredStudents.length === 0 || selectedIndex <= 0}
               onClick={() => {
-                if (selectedIndex > 0) setSelectedStudentId(filteredStudents[selectedIndex - 1].id);
+                if (selectedIndex > 0) setActiveRowId(filteredStudents[selectedIndex - 1].id);
               }}
               className="px-1.5 py-0.5 hover:bg-slate-100 disabled:opacity-30 border-r border-slate-300"
               title="Previous Record"
@@ -419,7 +523,7 @@ export const StudentListForm: React.FC<StudentListFormProps> = ({
             <button
               disabled={filteredStudents.length === 0 || selectedIndex >= filteredStudents.length - 1}
               onClick={() => {
-                if (selectedIndex < filteredStudents.length - 1) setSelectedStudentId(filteredStudents[selectedIndex + 1].id);
+                if (selectedIndex < filteredStudents.length - 1) setActiveRowId(filteredStudents[selectedIndex + 1].id);
               }}
               className="px-1.5 py-0.5 hover:bg-slate-100 disabled:opacity-30 border-l border-slate-300"
               title="Next Record"
@@ -428,22 +532,27 @@ export const StudentListForm: React.FC<StudentListFormProps> = ({
             </button>
             <button
               disabled={filteredStudents.length === 0 || selectedIndex >= filteredStudents.length - 1}
-              onClick={() => setSelectedStudentId(filteredStudents[filteredStudents.length - 1]?.id)}
+              onClick={() => setActiveRowId(filteredStudents[filteredStudents.length - 1]?.id)}
               className="px-1.5 py-0.5 hover:bg-slate-100 disabled:opacity-30 border-l border-slate-300"
               title="Last Record"
             >
               ▶|
             </button>
           </div>
+          {selectedStudentIds.length > 0 && (
+            <span className="text-[11px] text-amber-800 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+              {selectedStudentIds.length} Selected
+            </span>
+          )}
           {activeFilterCount > 0 && (
-            <span className="text-[11px] text-amber-800 font-medium bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+            <span className="text-[11px] text-blue-800 font-medium bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
               Filtered ({filteredStudents.length} records)
             </span>
           )}
         </div>
 
-        <div className="text-[11px] text-slate-500">
-          Double-click any row to open <strong className="text-slate-700">Student Details</strong>
+        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+          <span>Check boxes to select multiple records for <strong>Bulk Editing</strong></span>
         </div>
       </div>
     </div>

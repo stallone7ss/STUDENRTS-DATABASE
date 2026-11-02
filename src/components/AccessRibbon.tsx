@@ -2,7 +2,6 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-
 import React, { useState } from 'react';
 import { 
   Save, 
@@ -22,7 +21,8 @@ import {
   SlidersHorizontal,
   ChevronDown,
   Layers,
-  BookOpen
+  BookOpen,
+  Replace
 } from 'lucide-react';
 
 interface AccessRibbonProps {
@@ -31,6 +31,9 @@ interface AccessRibbonProps {
   onOpenArchitecture: () => void;
   onRefreshData: () => void;
   onQuickReport: (reportName: string) => void;
+  onOpenBulkEdit: () => void;
+  canUndo?: boolean;
+  onUndo?: () => void;
 }
 
 export const AccessRibbon: React.FC<AccessRibbonProps> = ({
@@ -38,7 +41,10 @@ export const AccessRibbon: React.FC<AccessRibbonProps> = ({
   onOpenOutlookImport,
   onOpenArchitecture,
   onRefreshData,
-  onQuickReport
+  onQuickReport,
+  onOpenBulkEdit,
+  canUndo,
+  onUndo,
 }) => {
   const [activeTab, setActiveTab] = useState<'Home' | 'Create' | 'External' | 'DatabaseTools' | 'Architecture'>('Home');
 
@@ -65,9 +71,12 @@ export const AccessRibbon: React.FC<AccessRibbonProps> = ({
               <Save className="w-3.5 h-3.5" />
             </button>
             <button 
-              onClick={onRefreshData}
-              className="p-1 hover:bg-red-900/60 rounded text-red-100 transition-colors"
-              title="Undo (Ctrl+Z)"
+              onClick={onUndo || onRefreshData}
+              disabled={!canUndo && !onUndo}
+              className={`p-1 rounded text-red-100 transition-colors ${
+                canUndo ? 'hover:bg-red-900/80 bg-red-800/60 text-white cursor-pointer' : 'hover:bg-red-900/60 opacity-60'
+              }`}
+              title={canUndo ? "Undo Last Bulk Edit (Ctrl+Z)" : "Undo (Ctrl+Z)"}
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
@@ -175,6 +184,17 @@ export const AccessRibbon: React.FC<AccessRibbonProps> = ({
                   <Mail className="w-4 h-4" />
                 </div>
                 <span className="text-[11px] font-medium leading-tight whitespace-nowrap">Add From Outlook</span>
+              </button>
+
+              <button
+                onClick={onOpenBulkEdit}
+                className="flex flex-col items-center justify-center p-1.5 hover:bg-slate-200/80 rounded transition-colors text-slate-800 cursor-pointer min-w-[64px]"
+                title="Bulk field updates and find-and-replace across student records"
+              >
+                <div className="w-6 h-6 bg-amber-100 border border-amber-400 text-amber-900 rounded flex items-center justify-center mb-0.5">
+                  <Replace className="w-4 h-4" />
+                </div>
+                <span className="text-[11px] font-medium leading-tight whitespace-nowrap">Bulk Edit</span>
               </button>
 
               <button
